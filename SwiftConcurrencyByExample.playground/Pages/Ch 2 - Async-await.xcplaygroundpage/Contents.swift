@@ -4,6 +4,9 @@ import _Concurrency
 /**
  Async/await Playground support:
  - https://forums.swift.org/t/async-await-in-playgrounds/54145/11
+
+ Running SwiftUI views in Playgrounds:
+- https://www.swiftbysundell.com/tips/rendering-a-swiftui-view-in-a-playground/
  */
 
 //: # Ch 2 - Async/await
@@ -96,6 +99,116 @@ Task {
 //: If we were relying on props from a class here, they could have changed between each of the `await` lines.
 //:
 //: We could protect against this using a system known as `Actors` which we'll get into at a later point.
+
+//: ## How to call async throwing functions
+//:
+//: Function signatures are marked as `async throws` while call sites are marked as `try await`. This
+func fetchFavorites() async throws -> [Int] {
+    let url = URL(string: "https://hws.dev/user-favorites.json")!
+    let (data, _) = try await URLSession.shared.data(from: url)
+    return try JSONDecoder().decode([Int].self, from: data)
+}
+
+Task {
+    if let favorites = try? await fetchFavorites() {
+        print("Fetched \(favorites.count) favorites")
+    } else {
+        print("Failed to fetch favorites")
+    }
+}
+
+//: ## What calls the first async function?
+//:
+//: Since async funcs can only be called from other async funcs, we're left in a bit of chicken or the egg problem.
+//:
+//: There are three main approaches, we'll be commonly reaching for:
+//: 1. Using the `@main` attribute, we can declare our `main()` method to be async. Our program will immediately launch into an async func, so we can freely call other async funcs.
+//func processWeather2() async {
+//    // Do some async work here
+//}
+
+//@main
+//struct MainApp {
+//    static func main() async {
+//        await processWeather2()
+//    }
+//}
+//: 2. Apps built with SwiftUI have various places that can trigger async funcs such as `refreshable()` and `task()` modifiers
+//:
+//: As an example, we can write a simple "View Source" app that fetches the content of a website when our view appears
+import SwiftUI
+import PlaygroundSupport
+
+struct ContentView1: View {
+    @State private var sourceCode = ""
+
+    var body: some View {
+        ScrollView {
+            Text(sourceCode)
+        }
+        .task {
+            await fetchSource()
+        }
+    }
+
+    func fetchSource() async {
+        do {
+            let url = URL(string: "https://apple.com")!
+            let (data, _) = try await URLSession.shared.data(from: url)
+            sourceCode = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            print("Failed to fetch apple.com")
+        }
+    }
+}
+
+//let view1 = ContentView1()
+//PlaygroundPage.current.setLiveView(view1)
+//:
+//: 3. Swift provides the `Task` API which lets us call async funcs from sync funcs. This is possible only when we don't need to wait for the result of the `await` since our sync function still can't suspend itself. The task will start running immediately, and it'll always run to completion even if we don't store our task somewhere.
+//:
+//: The following is an example where we'll use a synchronous button press to start an async network call. We can achieve this because our sync button press is not waiting for the result of our async network call, and our `fetchSource()` call will be handling updating our UI with the result as well. We've decoupled the async and sync functions deliberately since the sync function can't await any results from the async func directly as it doesn't know how to suspend itself.
+struct ContentView2: View {
+    @State private var site = "https://"
+    @State private var sourceCode = ""
+
+    var body: some View {
+        VStack {
+            HStack {
+                TextField("Website address", text: $site)
+                    .textFieldStyle(.roundedBorder)
+                Button("Go") {
+                    Task {
+                        await fetchSource()
+                    }
+                }
+            }
+            .padding()
+
+            ScrollView {
+                Text(sourceCode)
+            }.frame(minWidth: 300, minHeight: 600)
+        }
+    }
+
+    func fetchSource() async {
+        do {
+            let url = URL(string: site)!
+            let (data, _) = try await URLSession.shared.data(from: url)
+            sourceCode = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            sourceCode = "Failed to fetch \(site)"
+        }
+    }
+}
+
+let view2 = ContentView2()
+PlaygroundPage.current.setLiveView(view2)
+
+
+
+
+
 
 
 
