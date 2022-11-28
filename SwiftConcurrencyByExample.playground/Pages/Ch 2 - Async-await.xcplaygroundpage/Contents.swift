@@ -205,9 +205,75 @@ struct ContentView2: View {
 let view2 = ContentView2()
 PlaygroundPage.current.setLiveView(view2)
 
+//: ## How to create and use async properties
+//:
+//: Computed properties can also be async. Same as async funcs, they need to be accessed with `await`, and `throws` if an error can be thrown while computing the property. Note that this is only possible with read-only computed properties and attempting to provide a setter will result in a compile error.
+//:
+//: As a demonstration, we can create a `RemoteFile` struct which stores a URL whose content is dynamically fetched each time the property is requested. Because `URLSession.shared` automatically caches our data, we'll create a custom URL session which will always ignore both local and remote caches to ensure the latest remote file is always fetched.
+/// Custom URLSession which never caches
+extension URLSession {
+    static let noCacheSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: config)
+    }()
+}
 
+/// Fetch and decode a remote file via its URL whenever its `content` property is read
+struct RemoteFile<T: Decodable> {
+    let url: URL
+    let type: T.Type
 
+    var contents: T {
+        get async throws {
+            let (data, _) = try await URLSession.noCacheSession.data(from: url)
+            return try JSONDecoder().decode(type.self, from: data)
+        }
+    }
+}
+//: As an example where this could be used is a view that fetches messages. We never want stale data, so we're going to point our `RemoteFile` struct at a particular URL and tell it to expect an array of messages in response. All of the fetching, decoding, and cache bypass behavior is still neatly abstracted into our `RemoteFile` struct, so our view code remains nice and light!
+struct Message: Decodable, Identifiable {
+    let id: Int
+    let user: String
+    let text: String
+}
 
+struct MessageView: View {
+    let source = RemoteFile(url: URL(string: "https://hws.dev/inbox.json")!, type: [Message].self)
+    @State private var messages = [Message]()
+
+    var body: some View {
+        NavigationView {
+            List(messages) { message in
+                VStack(alignment: .leading) {
+                    Text(message.user)
+                        .font(.headline)
+                    Text(message.text)
+                }
+            }
+            .navigationTitle("Inbox")
+            .toolbar {
+                Button(action: refresh) {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+            }
+            .onAppear(perform: refresh)
+        }
+    }
+
+    func refresh() {
+        Task {
+            do {
+                messages = try await source.contents
+            } catch {
+                print("Message update failed")
+            }
+        }
+    }
+}
+//: To see the above view code in use, you'll need to use Xcode Live Previews. 😔
+//:
+//: But we got you! It's nestled in the Swift Playground app in the workspace under `Ch2/MessagesView`! 🥳
 
 
 
