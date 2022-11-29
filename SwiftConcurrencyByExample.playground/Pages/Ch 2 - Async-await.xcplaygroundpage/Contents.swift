@@ -273,8 +273,63 @@ struct MessageView: View {
 }
 //: To see the above view code in use, you'll need to use Xcode Live Previews. 😔
 //:
-//: But we got you! It's nestled in the Swift Playground app in the workspace under `Ch2/MessagesView`! 🥳
+//: But we got you! It's nestled in the Swift Playground app in this workspace under `Ch2/MessagesView`! 🥳
 
+//: ## How to call an async func using async let
+//:
+//: When you want to run several async ops concurrently and do not need to wait for their results to come back, you can use `async let`. This allows each of the async funcs to run immediately which is much more efficient than running each sequentially when the operations don't rely on the result of each other or modify the same data.
+//:
+//: For example, if we needed to make two unrelated network requests, using `async let` would be perfect to fire off both network requests concurrently.
+//:
+//: Lets begin by defining a couple of structs to store data -- one to store the user's account data and one to store all the messages in their inbox.
+struct User: Decodable {
+    let id: UUID
+    let name: String
+    let age: Int
+}
+
+struct Message_2: Decodable, Identifiable {
+    let id: Int
+    let from: String
+    let message: String
+}
+//: Because these can be fetched independently of each other, we can use `async let` instead of `await`
+func loadData() async {
+    async let (userData, _) = URLSession.shared.data(from: URL(string: "https://hws.dev/user-24601.json")!)
+    async let (messageData, _) = URLSession.shared.data(from: URL(string: "https://hws.dev/user-messages.json")!)
+
+    do {
+        let decoder = JSONDecoder()
+        let user = try await decoder.decode(User.self, from: userData)
+        let messages = try await decoder.decode([Message_2].self, from: messageData)
+        print("User \(user.name) has \(messages.count) message(s)")
+    } catch {
+        print("Sorry, there was a network problem")
+    }
+}
+
+Task {
+    await loadData()
+}
+//: You'll notice that when we write `async let`, we don't need to include `try` since that's handled when we read our values. This combination with `async let` allows us to start both of our network requests concurrently, but we must `try await` our results sequentially. If we want to read our network responses as they come back, we would need to use the `Task` API to do so.
+//:
+//: It's important to note that `await` is useful when we make dependent async requests that must run sequentially. Where the work is unrelated, we can run our requests concurrently using `async let` and we can later `await` the results sequentially
+
+//: ## Why can't we call async functions using async var?
+//:
+//: The restriction of not being able to use mutatable, capturable variables makes sense. Lets consider the following pseudocode example
+//func fetchUsername() async -> String {
+//    "jboo"
+//}
+//
+//async var username = fetchUsername()
+//username = "achacha"
+//print(username)
+//: We now have a race with our async function completing and the `username` being set. To avoid the ambiguity this causes, it's not allowed by Swift. Instead, we must use `async let` to make username a constant.
+
+//: ## How to use continuations to convert completion handlers into async functions
+//:
+//: 
 
 
 
