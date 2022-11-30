@@ -329,7 +329,54 @@ Task {
 
 //: ## How to use continuations to convert completion handlers into async functions
 //:
+//: When older Swift code using completion handlers needs to be used from an async func, we have `continuations` to create this bridge.
+//:
+//: Lets first consider a typical network request to fetch data from a server, decode it, and return the decoded data to its caller using competion handlers.
+struct Message_3: Decodable, Identifiable {
+    let id: Int
+    let from: String
+    let message: String
+}
+
+func fetchMessages(completion: @escaping ([Message_3]) -> Void) {
+    let url = URL(string: "https://hws.dev/user-messages.json")!
+
+    URLSession.shared.dataTask(with: url) { data, response, error in
+        if let data = data {
+            if let messages = try? JSONDecoder().decode([Message_3].self, from: data) {
+                completion(messages)
+                return
+            }
+        }
+        completion([])
+    }.resume()
+}
+//: In order to use this call within our own async funcs, we can use `Continuations` which are special objects we can pass into the completion handlers as captured values. Once the completion handler fires, we can:
+//: 1. Return the finished value
+//: 2. Throw an error
+//: 3. Send back a `Result` to be handled elewhere
+//: We can wrap our original `fetchMessages(completion:)` call with an async version that returns `[Message]`
+func fetchMessages() async -> [Message_3] {
+    await withCheckedContinuation { continuation in
+        fetchMessages { messages in
+            continuation.resume(returning: messages)
+        }
+    }
+}
+Task {
+    let messages = await fetchMessages()
+    print("Downloaded \(messages.count) messages.")
+}
+//: The key to checked continuations is that they are "checked" by Swift that we're using the continuation correctly.
+//:
+//: Continuations must be resumed **exactly once**. The program will crash if we call it more than once which is prefereable to the undefined behavior if we call it more than once.
+//:
+//: Equally, if we fail to resume our continutaion, we'll see a large warning in the debug log similar to "SWIFT TASK CONTINUATION MISUSE: fetchMessages() leaked its continuation!”. This occurs because if we leave our task suspended, we're causing the program to hold any resources indefinitely.
+
+//: ## How to create continuations that can throw errors
+//:
 //: 
+
 
 
 
