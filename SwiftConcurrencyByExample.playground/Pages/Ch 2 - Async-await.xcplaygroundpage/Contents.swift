@@ -1,5 +1,6 @@
 import Foundation
 import _Concurrency
+import WebKit
 
 /**
  Async/await Playground support:
@@ -375,10 +376,101 @@ Task {
 
 //: ## How to create continuations that can throw errors
 //:
-//: 
+//: If the API that's being wrapped can throw errors, then we should use `withCheckedThrowingContinuation()` and `withUnsafeThrowingContinuation()`.
+//:
+//: Both of these functions work the same as the non-throwing variants except we need to now catch any errors thrown inside the continuation
+//:
+//: As an example, lets consider our earlier `fetchMessages(completion:)` function. In the case that we either didn't receive `data` or were unable to decode it as a `[Message]`, we return an empty array in our completion closure.
+//:
+//: We can alter the behavior of our async Continuation wrapper to instead treat an empty array as a thrown error which may improve the intended semantics at call sites that it should be treated as an error and not potentially misconstrued as a partial success.
+enum FetchError: Error {
+    case noMesages
+}
 
+func tryFetchMessages() async -> [Message_3] {
+    do {
+        return try await withCheckedThrowingContinuation { continuation in
+            fetchMessages { messages in
+                if messages.isEmpty {
+                    continuation.resume(throwing: FetchError.noMesages)
+                } else {
+                    continuation.resume(returning: messages)
+                }
+            }
+        }
+    } catch {
+        return [
+            Message_3(
+                id: 1,
+                from: "Tom",
+                message: "Welcome to MySpace! I'm your new friend."
+            )
+        ]
+    }
+}
+Task {
+    let messages = await tryFetchMessages()
+    print("Downloaded \(messages.count) messages")
+}
+//: And alternatively, we can pass our throwing error to our caller to handle as well!
 
+func tryFetchMessages_2() async throws -> [Message_3] {
+    return try await withCheckedThrowingContinuation { continuation in
+        fetchMessages { messages in
+            if messages.isEmpty {
+                continuation.resume(throwing: FetchError.noMesages)
+            } else {
+                continuation.resume(returning: messages)
+            }
+        }
+    }
+}
+Task {
+    do {
+        let tryMessages = try await tryFetchMessages_2()
+        print("Downloaded \(tryMessages.count) messages")
+    } catch {
+        print("Failed to download messages with error: \(error.localizedDescription)")
+    }
+}
 
+//: ## How to store continuations to be resumed later
+//:
+//: Many of Apple's frameworks report success or failure using delegate methods instead of completion handlers. For these cases, simple contiuations are not sufficient.
+//:
+//: One example of a split success and failure is through a `WKNavigationDelegate` to handle navigating around a `WKWebView` where we would get our completion success and failure in two separate delegate methods
+func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    // success
+}
 
+func webView(_ webView: WKWebView, didFail: WKNavigation!, withError: Error) {
+    // failure
+}
+// For something such as this, we would need to be able to resume our continuation in either of these delegate methods.
+//:
+//: The key to making this work is that continuations are just structs with a specific generic type. For example, a checked continuation which succeeds with a string and never fails has the type `CheckedContinuation<String, Never>`. Similarly, an unchecked continuation that returns an integer array and can throw errors has the type `UnsafeContinuation<[Int], Error>`.
+//:
+//: We need to store our continuation when we trigger some functionality, then we can call it from either of our delegate methods for success or failure since it will only be executed once in this case. We need to be careful to still ensure our continuation is only called once, though! Otherwise, we end up with retained memory or a crash!
+//:
+//: Because our example will have SwiftUI demo code, it'll be in this workspace under chapter 2.
+
+//: ## How to fix the error "async call in a function that does not support concurrency"
+//:
+//: This error occurs when you try to call an async func from a sync func. Because async work needs to be waited for, you have to mark the current code as also being async so that you can use await as normal.
+//:
+//: This can sometimes result in having to mark each func as async for compatibility and quickly spreads the changes needed
+//:
+//: Instead, we can create a dedicated `Task` to handle this situation.
+func doAsyncWork() async {
+    print("Doing async work")
+}
+
+func doSyncWork() {
+    Task {
+        await doAsyncWork()
+    }
+}
+
+doSyncWork()
 
 //: [Previous](@previous)      [Next](@next)
